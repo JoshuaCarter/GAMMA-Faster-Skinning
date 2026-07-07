@@ -1,0 +1,84 @@
+--[[
+	Dorn's Faster Skinning
+
+	The vanilla "Well Dressed" achievement (500 kills, or 250 field dressings) is meant to
+	speed up mutant skinning/looting -- see ui_mutant_loot.script's UIMutantLoot:Loot(), which
+	swaps the slow default camera-locked loot animation for a much faster one, and (if FDDA
+	Redone's mutant skinning is installed) liz_fdda_redone_mutant_skinning.script's
+	get_mutant_skin_speed(), which adds a flat bonus to the actual skinning animation speed.
+	Both key off game_achievements.has_achievement("well_dressed"), which in practice takes
+	hours of grinding to earn, so almost nobody ever benefits from the speed-up it's supposed
+	to grant.
+
+	This mod patches game_achievements.has_achievement so that querying "well_dressed"
+	specifically always returns true (while enabled) -- applying the skinning speed-up the
+	achievement already grants by default, without touching any animation files. Equipping an
+	actual Hunting Kit still stacks on top for the fastest tier, same as vanilla.
+]]
+
+local MOD_ID = "dorn_faster_skinning"
+local DORN_COMMON_VERSION = "dorn_common_7367f5e7" -- managed by sync-dorn-common.sh, do not hand-edit
+
+local DORN
+
+local WELL_DRESSED_ID = "well_dressed"
+
+local CONFIG = {
+	enabled = true,
+	debug_log = false,
+}
+
+local original_has_achievement = nil
+
+local LOG_TYPE = {
+	LIFECYCLE = { order = 0, color = "gray" },
+	PATCH     = { order = 1, color = "green" },
+	QUERY     = { order = 2, color = "yellow" },
+}
+
+local function log(log_type, msg)
+	if DORN and DORN.dbg then
+		DORN.dbg.log(MOD_ID, log_type or LOG_TYPE.LIFECYCLE, msg, "FasterSkinning")
+	end
+end
+
+local function patched_has_achievement(achievement)
+	if CONFIG.enabled and achievement == WELL_DRESSED_ID then
+		log(LOG_TYPE.QUERY, "well_dressed queried -> forced true")
+		return true
+	end
+	return original_has_achievement(achievement)
+end
+
+local function patch_achievements()
+	if original_has_achievement then
+		return
+	end
+	if not (_G.game_achievements and _G.game_achievements.has_achievement) then
+		log(LOG_TYPE.PATCH, "game_achievements.has_achievement not found, nothing to patch")
+		return
+	end
+	original_has_achievement = _G.game_achievements.has_achievement
+	_G.game_achievements.has_achievement = patched_has_achievement
+	log(LOG_TYPE.PATCH, "game_achievements.has_achievement patched")
+end
+
+local function on_option_change()
+	CONFIG.enabled = DORN.mcm.bool(MOD_ID, "main/enabled", true)
+	CONFIG.debug_log = DORN.mcm.bool(MOD_ID, "development/debug_log", false)
+	DORN.dbg.set_enabled(MOD_ID, CONFIG.debug_log)
+end
+
+local function on_actor_on_update()
+	DORN.sys.ready(MOD_ID, db, on_option_change)
+end
+
+function on_game_start()
+	DORN = _G[DORN_COMMON_VERSION].load(MOD_ID)
+
+	patch_achievements()
+
+	RegisterScriptCallback("actor_on_update", on_actor_on_update)
+	RegisterScriptCallback("on_option_change", on_option_change)
+	log(LOG_TYPE.LIFECYCLE, "loaded")
+end

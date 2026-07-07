@@ -1,0 +1,20 @@
+#!/bin/sh
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+COMMON_TOOLS="../Dorns_Common/tools"
+if [ ! -d "$COMMON_TOOLS" ]; then
+	echo "pre-commit: Dorns_Common not found at $COMMON_TOOLS (needed for sync)"
+	exit 1
+fi
+
+bash "$COMMON_TOOLS/sync-dorn-common.sh"
+
+UNSTAGED="$(git diff --name-only -- gamedata/scripts)"
+UNTRACKED="$(git ls-files --others --exclude-standard -- gamedata/scripts)"
+if [ -n "$UNSTAGED" ] || [ -n "$UNTRACKED" ]; then
+	echo "gamedata/scripts has sync output that isn't staged yet:"
+	printf '%s\n%s\n' "$UNSTAGED" "$UNTRACKED" | sed '/^$/d'
+	echo "Run: git add gamedata/scripts"
+	exit 1
+fi

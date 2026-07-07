@@ -1,0 +1,41 @@
+function on_mcm_load()
+	return {
+		id = "dorn_faster_skinning",
+		text = "Dorn's Faster Skinning",
+		gr = {
+			{
+				id = "main",
+				sh = true,
+				text = "Main",
+				gr = {
+					{
+						id = "main_description",
+						type = "desc",
+						text = "ui_mcm_dorn_faster_skinning_main_description",
+					},
+					{
+						id = "enabled",
+						type = "check",
+						val = 1,
+						def = true,
+						hint = "dorn_faster_skinning_enabled",
+					},
+				},
+			},
+			{
+				id = "development",
+				sh = true,
+				text = "Development",
+				gr = {
+					{
+						id = "debug_log",
+						type = "check",
+						val = 1,
+						def = false,
+						hint = "dorn_faster_skinning_debug_log",
+					},
+				},
+			},
+		},
+	}
+end
