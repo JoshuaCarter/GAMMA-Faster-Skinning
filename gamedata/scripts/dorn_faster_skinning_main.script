@@ -26,23 +26,13 @@ local WELL_DRESSED_ID = "well_dressed"
 local CONFIG = {
 	enabled = true,
 	debug_log = false,
-	debug_overlay = false,
 }
 
 local original_has_achievement = nil
 
-local LOG_TYPE = {
-	LIFECYCLE = { order = 0, color = "gray" },
-	PATCH     = { order = 1, color = "green" },
-	QUERY     = { order = 2, color = "yellow" },
-}
-
-local function log(log_type, msg)
+local function log(msg)
 	if not (DORN and DORN.dbg) then
 		return
-	end
-	if CONFIG.debug_overlay then
-		DORN.dbg.overlay(MOD_ID, log_type or LOG_TYPE.LIFECYCLE, msg, "FasterSkinning")
 	end
 	if CONFIG.debug_log then
 		DORN.dbg.log(MOD_ID, tostring(msg))
@@ -51,7 +41,7 @@ end
 
 local function patched_has_achievement(achievement)
 	if CONFIG.enabled and achievement == WELL_DRESSED_ID then
-		log(LOG_TYPE.QUERY, "well_dressed queried -> forced true")
+		log("well_dressed queried -> forced true")
 		return true
 	end
 	return original_has_achievement(achievement)
@@ -62,19 +52,17 @@ local function patch_achievements()
 		return
 	end
 	if not (_G.game_achievements and _G.game_achievements.has_achievement) then
-		log(LOG_TYPE.PATCH, "game_achievements.has_achievement not found, nothing to patch")
+		log("game_achievements.has_achievement not found, nothing to patch")
 		return
 	end
 	original_has_achievement = _G.game_achievements.has_achievement
 	_G.game_achievements.has_achievement = patched_has_achievement
-	log(LOG_TYPE.PATCH, "game_achievements.has_achievement patched")
+	log("game_achievements.has_achievement patched")
 end
 
 local function on_option_change()
 	CONFIG.enabled = DORN.mcm.bool(MOD_ID, "main/enabled", true)
 	CONFIG.debug_log = DORN.mcm.bool(MOD_ID, "development/debug_log", false)
-	CONFIG.debug_overlay = DORN.mcm.bool(MOD_ID, "development/debug_overlay", false)
-	DORN.dbg.set_enabled(MOD_ID, CONFIG.debug_overlay)
 end
 
 local function on_actor_on_update()
@@ -88,5 +76,5 @@ function on_game_start()
 
 	RegisterScriptCallback("actor_on_update", on_actor_on_update)
 	RegisterScriptCallback("on_option_change", on_option_change)
-	log(LOG_TYPE.LIFECYCLE, "loaded")
+	log("loaded")
 end

@@ -9,12 +9,6 @@
 	<string id="ui_mcm_dorn_faster_skinning_enabled_desc">
 		<text>Treat the "Well Dressed" achievement as always earned for skinning-speed purposes.</text>
 	</string>
-	<string id="ui_mcm_dorn_faster_skinning_debug_overlay">
-		<text>Enable debug overlay</text>
-	</string>
-	<string id="ui_mcm_dorn_faster_skinning_debug_overlay_desc">
-		<text>Show Faster Skinning state in the debug overlay.</text>
-	</string>
 	<string id="ui_mcm_dorn_faster_skinning_debug_log">
 		<text>Enable debug logging</text>
 	</string>

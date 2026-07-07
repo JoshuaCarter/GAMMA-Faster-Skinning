@@ -5,7 +5,7 @@
             "name": "Tail Log",
             "type": "node-terminal",
             "request": "launch",
-            "command": "tail -f \"C:\\Anomaly\\appdata\\logs\\xray_khada.log\" | grep --line-buffered -E \"\\[FasterSkinning\\]|\\[DBG\\]\""
+            "command": "tail -f \"C:\\Anomaly\\appdata\\logs\\xray_khada.log\" | grep --line-buffered -E \"\\[DBG\\]\""
         },
         {
             "type": "lua",
