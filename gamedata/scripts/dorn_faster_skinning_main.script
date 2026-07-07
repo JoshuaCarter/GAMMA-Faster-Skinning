@@ -17,7 +17,7 @@
 ]]
 
 local MOD_ID = "dorn_faster_skinning"
-local DORN_COMMON_VERSION = "dorn_common_7367f5e7" -- managed by sync-dorn-common.sh, do not hand-edit
+local DORN_COMMON_VERSION = "dorn_common_3ea88f51" -- managed by sync-dorn-common.sh, do not hand-edit
 
 local DORN
 
@@ -26,6 +26,7 @@ local WELL_DRESSED_ID = "well_dressed"
 local CONFIG = {
 	enabled = true,
 	debug_log = false,
+	debug_overlay = false,
 }
 
 local original_has_achievement = nil
@@ -37,8 +38,14 @@ local LOG_TYPE = {
 }
 
 local function log(log_type, msg)
-	if DORN and DORN.dbg then
-		DORN.dbg.log(MOD_ID, log_type or LOG_TYPE.LIFECYCLE, msg, "FasterSkinning")
+	if not (DORN and DORN.dbg) then
+		return
+	end
+	if CONFIG.debug_overlay then
+		DORN.dbg.overlay(MOD_ID, log_type or LOG_TYPE.LIFECYCLE, msg, "FasterSkinning")
+	end
+	if CONFIG.debug_log then
+		DORN.dbg.log(MOD_ID, tostring(msg))
 	end
 end
 
@@ -66,7 +73,8 @@ end
 local function on_option_change()
 	CONFIG.enabled = DORN.mcm.bool(MOD_ID, "main/enabled", true)
 	CONFIG.debug_log = DORN.mcm.bool(MOD_ID, "development/debug_log", false)
-	DORN.dbg.set_enabled(MOD_ID, CONFIG.debug_log)
+	CONFIG.debug_overlay = DORN.mcm.bool(MOD_ID, "development/debug_overlay", false)
+	DORN.dbg.set_enabled(MOD_ID, CONFIG.debug_overlay)
 end
 
 local function on_actor_on_update()
