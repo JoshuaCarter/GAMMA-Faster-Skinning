@@ -1,4 +1,4 @@
-# Dorn's Faster Skinning
+# Dorn's Faster Skinning v0.1.2
 
 Speeds up mutant skinning in **S.T.A.L.K.E.R. G.A.M.M.A.** as a more immersive alternative to completely disabling the skinning animation.
 
@@ -8,5 +8,16 @@ https://github.com/user-attachments/assets/d599bded-44b8-4d0c-8a0a-6f238e1f5ffa
 
 ## Installation
 
-1. Download the latest release from [GAMMA-Faster-Skinning](https://github.com/JoshuaCarter/GAMMA-Faster-Skinning/releases)
+1. Download the latest release from https://github.com/JoshuaCarter/GAMMA-Faster-Skinning/releases
 2. Install via MO2 like normal
+
+## Other mods
+
+- https://github.com/JoshuaCarter/GAMMA-Dont-ReEquip-PDA
+- https://github.com/JoshuaCarter/GAMMA-Field-Strip-All-Keybind
+- https://github.com/JoshuaCarter/GAMMA-FPS-Counter
+- https://github.com/JoshuaCarter/GAMMA-Giant-Jump
+- https://github.com/JoshuaCarter/GAMMA-Optimal-Tool-Use
+- https://github.com/JoshuaCarter/GAMMA-Prone-Fix
+- https://github.com/JoshuaCarter/GAMMA-Radiation-Grain-Fix
+- https://github.com/JoshuaCarter/GAMMA-Tooltip-Weapon-Damage

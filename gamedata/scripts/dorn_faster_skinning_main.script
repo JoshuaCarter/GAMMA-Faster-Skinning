@@ -334,10 +334,6 @@ local function on_option_change()
 	CONFIG.skin_speed_multiplier = DORN.mcm.number(MOD_ID, "main/skin_speed_multiplier", 1.5)
 end
 
-local function on_actor_on_update()
-	DORN.sys.ready(MOD_ID, db, on_option_change)
-end
-
 function on_game_start()
 	DORN = _G[DORN_COMMON_VERSION].load(MOD_ID)
 
@@ -349,7 +345,9 @@ function on_game_start()
 	patch_xr_sound()
 	skin_cut_sfx = sound_object(SKIN_CUT_SOUND)
 
-	RegisterScriptCallback("actor_on_update", on_actor_on_update)
+	RegisterScriptCallback("actor_on_update", function()
+		DORN.sys.ready(MOD_ID, db, on_option_change)
+	end)
 	RegisterScriptCallback("on_option_change", on_option_change)
 	log("loaded")
 end
