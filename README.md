@@ -4,7 +4,7 @@ Speeds up mutant skinning in **S.T.A.L.K.E.R. G.A.M.M.A.** as a more immersive a
 
 ## Demo
 
-https://github.com/JoshuaCarter/GAMMA-Faster-Skinning/raw/main/skinning.mp4
+https://github.com/user-attachments/assets/d599bded-44b8-4d0c-8a0a-6f238e1f5ffa
 
 ## Installation
 
