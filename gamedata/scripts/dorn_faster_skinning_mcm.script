@@ -8,6 +8,7 @@ end
 
 
 
+
 function on_mcm_load()
 	local MCM = dorn_mcm()
 	return {
@@ -41,7 +42,7 @@ function on_mcm_load()
 						def = 1.5,
 						hint = "dorn_faster_skinning_skin_speed_multiplier",
 					},
-				},
+				}),
 			},
 			{
 				id = "development",
@@ -55,7 +56,7 @@ function on_mcm_load()
 						def = false,
 						hint = "dorn_faster_skinning_debug_log",
 					},
-				},
+				}),
 			},
 		},
 	}
