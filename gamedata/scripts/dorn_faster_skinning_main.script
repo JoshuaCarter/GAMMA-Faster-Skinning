@@ -46,7 +46,7 @@
 ]]
 
 local MOD_ID = "dorn_faster_skinning"
-local DORN_COMMON_VERSION = "dorn_common_f575cc9b" -- managed by sync-dorn-common.sh, do not hand-edit
+local DORN_COMMON_VERSION = "dorn_common_c62f913d" -- managed by sync-dorn-common.sh, do not hand-edit
 
 local DORN
 
@@ -81,9 +81,6 @@ local function log(msg)
 	end
 end
 
-
----------------------------------------------------------------------------------
-
 local function patched_has_achievement(achievement)
 	if CONFIG.enabled and achievement == WELL_DRESSED_ID then
 		log("well_dressed queried -> forced true")
@@ -105,11 +102,8 @@ local function patch_achievements()
 	log("game_achievements.has_achievement patched")
 end
 
----------------------------------------------------------------------------------
-
 local function lock_mutant_skin_movement()
-
-
+	
 game.only_allow_movekeys(false)
 	if _G.liz_fdda_input_manager then
 		liz_fdda_input_manager.is_input_disabled = true
@@ -149,8 +143,6 @@ local function release_mutant_skin_movement_lock(self)
 	log("mutant_skin: movement lock released")
 end
 
----------------------------------------------------------------------------------
-
 local function patched_add_action(action)
 	if CONFIG.enabled and action and action.name == ACTION_MUTANT_LOOT then
 		log("mutant_loot: dropped from queue (item is already in inventory)")
@@ -178,7 +170,16 @@ local function patch_lam2()
 	log("lam2.add_action patched")
 end
 
----------------------------------------------------------------------------------
+local function restore_auto_crouch(was_crouching)
+	if was_crouching == IsMoveState("mcCrouch") then
+		return
+	end
+	level.press_action(bind_to_dik(key_bindings.kCROUCH))
+	level.release_action(bind_to_dik(key_bindings.kCROUCH))
+	if not get_console_cmd(1, "g_crouch_toggle") then
+		exec_console_cmd("g_crouch_toggle 0")
+	end
+end
 
 local function patched_get_template_action_mutant_skin(obj)
 	local a = original_get_template_action_mutant_skin(obj)
@@ -239,8 +240,6 @@ local function patched_get_template_action_mutant_skin(obj)
 	end
 	return a
 end
-
----------------------------------------------------------------------------------
 
 local function patch_mutant_skin_speed()
 	if original_get_template_action_mutant_skin then
