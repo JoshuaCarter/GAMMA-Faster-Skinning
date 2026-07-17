@@ -104,8 +104,9 @@ end
 
 -- Auto-crouch for the knife-cut. crouch=true applies; crouch=false restores the
 -- prior pose. A press/release only sticks when g_crouch_toggle is on (same trick
--- FDDA body search uses), so hold-crouch players get toggle briefly enabled and
--- restored afterward. No-ops when the MCM option is off or pose is already right.
+-- FDDA body search uses), so if the player uses hold-crouch we briefly enable
+-- toggle, then put their previous setting back. No-ops when the MCM option is
+-- off or pose is already right.
 local function do_crouch(flags, crouch)
 	if not CONFIG.auto_crouch or not flags then
 		return
@@ -116,9 +117,8 @@ local function do_crouch(flags, crouch)
 		if flags.dorn_skin_was_crouching then
 			return
 		end
-		-- Hold-crouch: press+release would stand right back up, so flip to toggle.
-		flags.dorn_forced_crouch_toggle = not (get_console_cmd(1, "g_crouch_toggle") or false)
-		if flags.dorn_forced_crouch_toggle then
+		flags.dorn_prev_crouch_toggle = get_console_cmd(1, "g_crouch_toggle") or false
+		if not flags.dorn_prev_crouch_toggle then
 			exec_console_cmd("g_crouch_toggle 1")
 		end
 		level.press_action(bind_to_dik(key_bindings.kCROUCH))
@@ -135,11 +135,11 @@ local function do_crouch(flags, crouch)
 		level.release_action(bind_to_dik(key_bindings.kCROUCH))
 		log("mutant_skin: auto-crouch restored")
 	end
-	if flags.dorn_forced_crouch_toggle then
-		exec_console_cmd("g_crouch_toggle 0")
+	if flags.dorn_prev_crouch_toggle ~= nil then
+		exec_console_cmd(flags.dorn_prev_crouch_toggle and "g_crouch_toggle 1" or "g_crouch_toggle 0")
 	end
 	flags.dorn_skin_was_crouching = nil
-	flags.dorn_forced_crouch_toggle = nil
+	flags.dorn_prev_crouch_toggle = nil
 end
 
 local function release_mutant_skin_movement_lock(self)
