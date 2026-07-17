@@ -1,54 +1,9 @@
 --[[
 	Dorn's Faster Skinning
 
-	The vanilla "Well Dressed" achievement (500 kills, or 250 field dressings) is meant to
-	speed up mutant skinning/looting -- see ui_mutant_loot.script's UIMutantLoot:Loot(), which
-	swaps the slow default camera-locked loot animation for a much faster one, and (if FDDA
-	Redone's mutant skinning is installed) liz_fdda_redone_mutant_skinning.script's
-	get_mutant_skin_speed(), which adds a flat bonus to the actual skinning animation speed.
-	Both key off game_achievements.has_achievement("well_dressed"), which in practice takes
-	hours of grinding to earn, so almost nobody ever benefits from the speed-up it's supposed
-	to grant.
-
-	This mod patches game_achievements.has_achievement so that querying "well_dressed"
-	specifically always returns true (while enabled) -- applying the skinning speed-up the
-	achievement already grants by default, without touching any animation files. Equipping an
-	actual Hunting Kit still stacks on top for the fastest tier, same as vanilla.
-
-	With FDDA Redone's mutant skinning installed, this also drops the extra per-item pickup
-	animation ("mutant_loot") that plays right after the knife-cut ("mutant_skin"), by patching
-	it out of lam2's action queue (lam2.add_action). The looted item is already in the actor's
-	inventory by the time this animation would play -- ui_mutant_loot.script's
-	UIMutantLoot:Loot() calls alife_create_item() before this action is ever queued -- so
-	skipping it costs the player nothing, it just removes a redundant hand animation that on
-	its own eats as much time as the knife-cut itself.
-
-	Optionally (off by default), we also multiply the knife-cut ("mutant_skin") animation's own
-	playback speed, by patching liz_fdda_redone_mutant_skinning.get_template_action_mutant_skin.
-	The cut's own hud animation doesn't speed up its sound to match, so we suppress the vanilla
-	cut sound (ui_mutant_loot.script's unconditional xr_sound.set_sound_play(AC_ID,
-	"inv_mutant_loot_animal") call, patched via xr_sound.set_sound_play) and instead play our own
-	scriptable sound_object (reusing FDDA's existing "harvest_use" cut sound), pitched to match
-	the multiplier via play_no_feedback's frequency argument, so it stays in sync with the faster
-	visual. Above 1x we also skip FDDA/lam2 cam effectors and hud_fov zoom tied to the cut.
-
-	Optionally (off by default), with FDDA Redone's mutant skinning installed we also crouch
-	for the knife-cut and stand back up when it ends. Crouch is started when the action would
-	be queued; the knife anim and disable_input wait until crouch lands (or a short timeout)
-	so Pose Controls / the engine can finish the pose. Works with both hold-crouch and
-	toggle-crouch (g_crouch_toggle): hold mode briefly enables toggle so a press/release
-	sticks, then restores the player's setting.
-
-	Optionally (off by default), look at a fixed point on the mutant (spine + height offset)
-	for the whole skinning lock — including crouch/stand transitions. The aim point is
-	eased from the current view toward that goal each update (smooth, not a snap). FDDA's
-	own mutant-skin look-at is always cancelled so only this option controls it. Body search
-	/ human corpse looting are untouched: we only patch mutant_skin / mutant_loot and
-	get_template_action_mutant_skin.
-
-	We also lock movement when the knife-cut actually starts (after any crouch wait). lam2
-	normally waits until action enter (and may run hide_items_in_hands first) before
-	disable_input kicks in, which leaves a short window where the player can still walk.
+	Applies the vanilla "Well Dressed" skinning speed-up by default, skips FDDA's
+	redundant post-cut pickup anim, and optionally speeds the knife-cut, auto-crouches,
+	and looks at the mutant during the cut.
 ]]
 
 local MOD_ID = "dorn_faster_skinning"
@@ -150,74 +105,24 @@ local function do_crouch(flags, crouch)
 	flags.dorn_prev_crouch_toggle = nil
 end
 
--- Look at a fixed world point on the mutant for the whole skinning lock (including
--- crouch/stand transitions). The look point is eased from the current aim toward
--- the goal each update (actor_look_at_point itself snaps), then held on the goal.
-local LOOK_AT_SMOOTH_SEC = 0.35
-local look_at_goal = nil
-local look_at_cur = nil
-
-local function look_at_dt()
-	if device() and device().time_delta then
-		return device().time_delta / 1000
-	end
-	return 0.016
-end
-
-local function refresh_look_at()
-	if not (look_at_goal and look_at_cur and db.actor) then
-		return
-	end
-	local alpha = 1 - math.exp(-look_at_dt() / LOOK_AT_SMOOTH_SEC)
-	look_at_cur.x = look_at_cur.x + (look_at_goal.x - look_at_cur.x) * alpha
-	look_at_cur.y = look_at_cur.y + (look_at_goal.y - look_at_cur.y) * alpha
-	look_at_cur.z = look_at_cur.z + (look_at_goal.z - look_at_cur.z) * alpha
-	db.actor:actor_look_at_point(look_at_cur)
-end
-
-local function do_look_at(self, look)
+-- Engine look-at has no speed arg (actor_look_at_point(vector) only). Call it
+-- directly; hold through crouch/stand by re-applying until we stop.
+local function do_look_at(action, look)
 	if not CONFIG.look_at_mutant then
 		return
 	end
 	if look then
-		if not look_at_goal then
-			local target = self and self.target
-			if not target then
-				return
-			end
-			local mp = target:bone_position(LOOK_AT_BONE)
-			look_at_goal = vector()
-			look_at_goal:set(mp)
-			look_at_goal.y = look_at_goal.y + CONFIG.look_at_offset
-			-- Start from where the camera is already aiming (same distance as goal).
-			local cam_pos = device().cam_pos
-			local dist = cam_pos:distance_to(look_at_goal)
-			if dist < 0.1 then
-				dist = 1
-			end
-			look_at_cur = vector()
-			look_at_cur:set(device().cam_dir)
-			look_at_cur:mul(dist)
-			look_at_cur:add(cam_pos)
-			log("mutant_skin: look-at applied")
+		local target = action and action.target
+		if not (target and db.actor) then
+			return
 		end
-		refresh_look_at()
-		if self then
-			self.flags = self.flags or {}
-			self.flags.dorn_look_at = true
-		end
+		local mp = target:bone_position(LOOK_AT_BONE)
+		mp.y = mp.y + CONFIG.look_at_offset
+		db.actor:actor_look_at_point(mp)
 		return
 	end
-	if not look_at_goal then
-		return
-	end
-	look_at_goal = nil
-	look_at_cur = nil
 	if db.actor and db.actor.actor_stop_look_at_point then
 		db.actor:actor_stop_look_at_point()
-	end
-	if self and self.flags then
-		self.flags.dorn_look_at = nil
 	end
 end
 
@@ -228,22 +133,18 @@ local CROUCH_BEFORE_SKIN_MS = 600
 local pending_skin_action = nil
 local pending_skin_deadline = nil
 
-local function apply_skin_input_lock(action)
-	if not (action and action.flags) or action.flags.dorn_input_disabled then
-		return
-	end
-	level.disable_input()
-	game.only_allow_movekeys(false)
-	if _G.liz_fdda_input_manager then
-		liz_fdda_input_manager.is_input_disabled = true
-	end
-	game.set_actor_allow_ladder(false)
-	action.flags.dorn_input_disabled = true
-	log("mutant_skin: movement locked")
-end
-
 local function start_skin_action(action)
-	apply_skin_input_lock(action)
+	-- Full input lock, then queue. Skip re-lock if we already locked this action.
+	if action and action.flags and not action.flags.dorn_input_disabled then
+		level.disable_input()
+		game.only_allow_movekeys(false)
+		if _G.liz_fdda_input_manager then
+			liz_fdda_input_manager.is_input_disabled = true
+		end
+		game.set_actor_allow_ladder(false)
+		action.flags.dorn_input_disabled = true
+		log("mutant_skin: movement locked")
+	end
 	return original_lam2_add_action(action)
 end
 
@@ -264,25 +165,25 @@ local function tick_pending_skin_action()
 	end
 end
 
-local function release_mutant_skin_movement_lock(self)
-	if not (self.flags and self.flags.dorn_early_movement_lock) then
+local function release_mutant_skin_movement_lock(action)
+	if not (action.flags and action.flags.dorn_early_movement_lock) then
 		return
 	end
-	if pending_skin_action == self then
+	if pending_skin_action == action then
 		pending_skin_action = nil
 		pending_skin_deadline = nil
 	end
 	level.enable_input()
 	-- Stand while still looking, then release the look-at.
-	do_crouch(self.flags, false)
-	do_look_at(self, false)
+	do_crouch(action.flags, false)
+	do_look_at(action, false)
 	game.only_allow_movekeys(false)
 	if _G.liz_fdda_input_manager then
 		liz_fdda_input_manager.is_input_disabled = false
 	end
 	game.set_actor_allow_ladder(true)
-	self.flags.dorn_early_movement_lock = nil
-	self.flags.dorn_input_disabled = nil
+	action.flags.dorn_early_movement_lock = nil
+	action.flags.dorn_input_disabled = nil
 	log("mutant_skin: movement lock released")
 end
 
@@ -344,7 +245,6 @@ local function patched_get_template_action_mutant_skin(obj)
 
 	a.on_enter = function(self)
 		self.flags = self.flags or {}
-		self.flags.dorn_skin_entered = true
 
 		if speed_up then
 			if lam_fov_manager then
@@ -364,7 +264,7 @@ local function patched_get_template_action_mutant_skin(obj)
 	end
 
 	a.on_execute = function(self, time)
-		refresh_look_at()
+		do_look_at(self, true)
 		if fdda_on_execute then
 			return fdda_on_execute(self, time)
 		end
@@ -375,10 +275,10 @@ local function patched_get_template_action_mutant_skin(obj)
 			level.remove_cam_effector(LAM2_CAM_EFFECTOR_ID)
 		end
 		if fdda_on_exit then
-			-- Still need knife degrade etc.; this also calls actor_stop_look_at_point.
+			-- Knife degrade etc.; also stops look-at — re-apply so stand-up keeps it.
 			fdda_on_exit(self)
 		end
-		refresh_look_at()
+		do_look_at(self, true)
 		release_mutant_skin_movement_lock(self)
 	end
 
@@ -389,7 +289,7 @@ local function patched_get_template_action_mutant_skin(obj)
 		if fdda_on_skip then
 			fdda_on_skip(self)
 		end
-		refresh_look_at()
+		do_look_at(self, true)
 		release_mutant_skin_movement_lock(self)
 	end
 
@@ -456,7 +356,9 @@ function on_game_start()
 	RegisterScriptCallback("actor_on_update", function()
 		DORN.sys.ready(MOD_ID, db, on_option_change)
 		tick_pending_skin_action()
-		refresh_look_at()
+		if pending_skin_action then
+			do_look_at(pending_skin_action, true)
+		end
 	end)
 	RegisterScriptCallback("on_option_change", on_option_change)
 	log("loaded")

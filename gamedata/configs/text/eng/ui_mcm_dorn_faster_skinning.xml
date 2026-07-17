@@ -1,8 +1,5 @@
 <?xml version="1.0" encoding="windows-1251"?>
 <string_table>
-	<string id="ui_mcm_dorn_faster_skinning_main_description">
-		<text>The vanilla "Well Dressed" achievement (500 kills, or 250 field dressings) is meant to speed up mutant skinning/looting, but takes hours of grinding to earn. This mod applies that speed-up by default. Equipping a Hunting Kit still stacks on top for the fastest tier, same as vanilla. If FDDA Redone's mutant skinning is installed, this also skips the extra "tucking the part away" animation that plays after the knife-cut - the part is already in your inventory by then, so nothing is lost.</text>
-	</string>
 	<string id="ui_mcm_dorn_faster_skinning_enabled">
 		<text>Enable</text>
 	</string>
