@@ -82,7 +82,7 @@ local function log(msg)
 end
 
 
----------------------------------------------------------------------------------<
+---------------------------------------------------------------------------------
 
 local function patched_has_achievement(achievement)
 	if CONFIG.enabled and achievement == WELL_DRESSED_ID then
@@ -105,7 +105,7 @@ local function patch_achievements()
 	log("game_achievements.has_achievement patched")
 end
 
----------------------------------------------------------------------------------<
+---------------------------------------------------------------------------------
 
 local function lock_mutant_skin_movement()
 
@@ -149,7 +149,6 @@ local function release_mutant_skin_movement_lock(self)
 	log("mutant_skin: movement lock released")
 end
 
-
 ---------------------------------------------------------------------------------
 
 local function patched_add_action(action)
@@ -179,87 +178,6 @@ local function patch_lam2()
 	log("lam2.add_action patched")
 end
 
---[[
-
-local function is_body_search_auto_crouch_enabled()
-	if not (_G.liz_fdda_redone_mcm and _G.liz_fdda_redone_mcm.get_config) then
-		return true
-	end
-	return _G.liz_fdda_redone_mcm.get_config("body_search/enable_crouch") ~= false
-end
-
-local function get_mutant_crouch_target_pos(obj)
-	if not obj then
-		return nil
-	end
-	local target_pos = obj:bone_position(MUTANT_CROUCH_BONE)
-	if _G.liz_fdda_redone_body_search and _G.liz_fdda_redone_body_search.clamp_target_pos_height then
-		return _G.liz_fdda_redone_body_search.clamp_target_pos_height(target_pos, 7)
-	end
-	local actor_pos = device().cam_pos
-	local height_delta = actor_pos.y - target_pos.y
-	if height_delta > 7 then
-		target_pos.y = actor_pos.y - 7
-	elseif height_delta < -7 then
-		target_pos.y = actor_pos.y + 7
-	end
-	return target_pos
-end
-
-local function should_auto_crouch_for_target(target_pos, was_crouching)
-	if not is_body_search_auto_crouch_enabled() then
-		return false
-	end
-	local height_delta = device().cam_pos.y - target_pos.y
-	if height_delta < -CROUCH_HEIGHT_DELTA and was_crouching then
-		return true
-	end
-	if height_delta > CROUCH_HEIGHT_DELTA and not was_crouching then
-		return true
-	end
-	return false
-end
-
-
----------------------------------------------------------------------------------<
-
-local function press_crouch()
-	if not get_console_cmd(1, "g_crouch_toggle") then
-		exec_console_cmd("g_crouch_toggle 1")
-	end
-	level.press_action(bind_to_dik(key_bindings.kCROUCH))
-	level.release_action(bind_to_dik(key_bindings.kCROUCH))
-end
-
-local function release_crouch()
-
---local function restore_auto_crouch(was_crouching)
---	if was_crouching == IsMoveState("mcCrouch") then
---		return
---	end
-
-	level.press_action(bind_to_dik(key_bindings.kCROUCH))
-	level.release_action(bind_to_dik(key_bindings.kCROUCH))
-	if not get_console_cmd(1, "g_crouch_toggle") then
-		exec_console_cmd("g_crouch_toggle 0")
-	end
-end
-
----------------------------------------------------------------------------------<
-
-local function apply_auto_crouch_for_mutant_skin(self, target_pos)
-	self.flags = self.flags or {}
-	self.flags.skin_was_crouching = IsMoveState("mcCrouch")
-	if not target_pos then
-		return
-	end
-	if should_auto_crouch_for_target(target_pos, self.flags.skin_was_crouching) then
-		press_auto_crouch()
-		log("mutant_skin: auto-crouch applied")
-	end
-end
-
-]]
 ---------------------------------------------------------------------------------
 
 local function patched_get_template_action_mutant_skin(obj)
@@ -267,8 +185,6 @@ local function patched_get_template_action_mutant_skin(obj)
 	if not CONFIG.enabled then
 		return a
 	end
-
---	local target_pos = get_mutant_crouch_target_pos(obj)
 
 	local fdda_on_enter = a.on_enter
 	local fdda_on_exit = a.on_exit
@@ -286,9 +202,6 @@ local function patched_get_template_action_mutant_skin(obj)
 	a.on_enter = function(self)
 		self.flags = self.flags or {}
 		self.flags.dorn_skin_entered = true
-
---		apply_auto_crouch_for_mutant_skin(self, target_pos)
-
 		if speed_up then
 			if lam_fov_manager then
 				lam_fov_manager.restore_fov()
@@ -308,11 +221,6 @@ local function patched_get_template_action_mutant_skin(obj)
 		if fdda_on_exit then
 			fdda_on_exit(self)
 		end
-
---		if self.flags and self.flags.skin_was_crouching ~= nil then
---			restore_auto_crouch(self.flags.skin_was_crouching)
---		end
-
 		release_mutant_skin_movement_lock(self)
 	end
 
@@ -323,11 +231,6 @@ local function patched_get_template_action_mutant_skin(obj)
 		if fdda_on_skip then
 			fdda_on_skip(self)
 		end
-
---		if self.flags and self.flags.skin_was_crouching ~= nil then
---			restore_auto_crouch(self.flags.skin_was_crouching)
---		end
-
 		release_mutant_skin_movement_lock(self)	
 	end
 
