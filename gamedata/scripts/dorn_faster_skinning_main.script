@@ -35,10 +35,11 @@
 	"cam" ltx field (by pointing a.cam at a missing key), the actor look-at-target tilt, and
 	the hud_fov zoom lam2 applies on enter.
 
-	With FDDA Redone's mutant skinning installed, we also mirror FDDA body search's height-based
-	auto-crouch on the knife-cut: crouch down when the corpse is far enough below the actor,
-	stand back up when it is above, and restore the prior crouch state once the cut ends. Honors
-	FDDA Redone MCM -> Body Search -> "Auto crouch".
+	Optionally (off by default), with FDDA Redone's mutant skinning installed we also crouch
+	for the knife-cut and stand back up when it ends. Crouch is applied when the action is
+	queued (before disable_input). Works with both hold-crouch and toggle-crouch
+	(g_crouch_toggle): hold mode briefly enables toggle so a press/release sticks, then
+	restores the player's setting.
 
 	We also lock movement as soon as the knife-cut action is queued. lam2 normally waits until
 	action enter (and may run hide_items_in_hands first) before disable_input kicks in, which
@@ -57,13 +58,12 @@ local MUTANT_LOOT_SOUND = "inv_mutant_loot_animal"
 local SKIN_CUT_SOUND = "interface\\item_usage\\harvest_use"
 local LAM2_CAM_EFFECTOR_ID = 2190 -- lam2.get_template_action_play_animation's cam effector id
 local LAM2_MISSING_LTX_KEY = "__dorn_no_ltx__" -- bogus ini key so lam2 skips cam/snd lookups
-local MUTANT_CROUCH_BONE = "bip01_spine1"
-local CROUCH_HEIGHT_DELTA = 0.9 -- matches liz_fdda_redone_body_search.is_should_crouch
 
 local CONFIG = {
 	enabled = true,
 	debug_log = false,
 	skin_speed_multiplier = 1.5,
+	auto_crouch = false,
 }
 
 local original_has_achievement = nil
@@ -102,11 +102,52 @@ local function patch_achievements()
 	log("game_achievements.has_achievement patched")
 end
 
+-- Auto-crouch for the knife-cut. crouch=true applies; crouch=false restores the
+-- prior pose. A press/release only sticks when g_crouch_toggle is on (same trick
+-- FDDA body search uses), so hold-crouch players get toggle briefly enabled and
+-- restored afterward. No-ops when the MCM option is off or pose is already right.
+local function do_crouch(flags, crouch)
+	if not CONFIG.auto_crouch or not flags then
+		return
+	end
+
+	if crouch then
+		flags.dorn_skin_was_crouching = IsMoveState("mcCrouch")
+		if flags.dorn_skin_was_crouching then
+			return
+		end
+		-- Hold-crouch: press+release would stand right back up, so flip to toggle.
+		flags.dorn_forced_crouch_toggle = not (get_console_cmd(1, "g_crouch_toggle") or false)
+		if flags.dorn_forced_crouch_toggle then
+			exec_console_cmd("g_crouch_toggle 1")
+		end
+		level.press_action(bind_to_dik(key_bindings.kCROUCH))
+		level.release_action(bind_to_dik(key_bindings.kCROUCH))
+		log("mutant_skin: auto-crouch applied")
+		return
+	end
+
+	if flags.dorn_skin_was_crouching == nil then
+		return
+	end
+	if flags.dorn_skin_was_crouching ~= IsMoveState("mcCrouch") then
+		level.press_action(bind_to_dik(key_bindings.kCROUCH))
+		level.release_action(bind_to_dik(key_bindings.kCROUCH))
+		log("mutant_skin: auto-crouch restored")
+	end
+	if flags.dorn_forced_crouch_toggle then
+		exec_console_cmd("g_crouch_toggle 0")
+	end
+	flags.dorn_skin_was_crouching = nil
+	flags.dorn_forced_crouch_toggle = nil
+end
+
 local function release_mutant_skin_movement_lock(self)
 	if not (self.flags and self.flags.dorn_early_movement_lock) then
 		return
 	end
 	level.enable_input()
+	do_crouch(self.flags, false)
 	game.only_allow_movekeys(false)
 	if _G.liz_fdda_input_manager then
 		liz_fdda_input_manager.is_input_disabled = false
@@ -122,13 +163,15 @@ local function patched_add_action(action)
 		return
 	end
 	if CONFIG.enabled and action and action.name == ACTION_MUTANT_SKIN then
+		action.flags = action.flags or {}
+		-- Before disable_input so the pose change still goes through.
+		do_crouch(action.flags, true)
 		level.disable_input()
 		game.only_allow_movekeys(false)
 		if _G.liz_fdda_input_manager then
 			liz_fdda_input_manager.is_input_disabled = true
 		end
 		game.set_actor_allow_ladder(false)
-		action.flags = action.flags or {}
 		action.flags.dorn_early_movement_lock = true
 		log("mutant_skin: movement locked on queue")
 	end
@@ -148,38 +191,12 @@ local function patch_lam2()
 	log("lam2.add_action patched")
 end
 
-local function restore_auto_crouch(was_crouching)
-	if was_crouching == IsMoveState("mcCrouch") then
-		return
-	end
-	level.press_action(bind_to_dik(key_bindings.kCROUCH))
-	level.release_action(bind_to_dik(key_bindings.kCROUCH))
-	if not get_console_cmd(1, "g_crouch_toggle") then
-		exec_console_cmd("g_crouch_toggle 0")
-	end
-end
-
 local function patched_get_template_action_mutant_skin(obj)
 	local a = original_get_template_action_mutant_skin(obj)
 	if not CONFIG.enabled then
 		return a
 	end
 
-	local target_pos
-	if obj then
-		target_pos = obj:bone_position(MUTANT_CROUCH_BONE)
-		if _G.liz_fdda_redone_body_search and _G.liz_fdda_redone_body_search.clamp_target_pos_height then
-			target_pos = _G.liz_fdda_redone_body_search.clamp_target_pos_height(target_pos, 7)
-		else
-			local actor_pos = device().cam_pos
-			local height_delta = actor_pos.y - target_pos.y
-			if height_delta > 7 then
-				target_pos.y = actor_pos.y - 7
-			elseif height_delta < -7 then
-				target_pos.y = actor_pos.y + 7
-			end
-		end
-	end
 	local fdda_on_enter = a.on_enter
 	local fdda_on_exit = a.on_exit
 	local fdda_on_skip = a.on_skip
@@ -196,27 +213,6 @@ local function patched_get_template_action_mutant_skin(obj)
 	a.on_enter = function(self)
 		self.flags = self.flags or {}
 		self.flags.dorn_skin_entered = true
-
-		-- mirror FDDA body search auto-crouch on the knife-cut
-		self.flags.skin_was_crouching = IsMoveState("mcCrouch")
-		if target_pos then
-			local auto_crouch_enabled = true
-			if _G.liz_fdda_redone_mcm and _G.liz_fdda_redone_mcm.get_config then
-				auto_crouch_enabled = _G.liz_fdda_redone_mcm.get_config("body_search/enable_crouch") ~= false
-			end
-			if auto_crouch_enabled then
-				local height_delta = device().cam_pos.y - target_pos.y
-				if (height_delta < -CROUCH_HEIGHT_DELTA and self.flags.skin_was_crouching)
-					or (height_delta > CROUCH_HEIGHT_DELTA and not self.flags.skin_was_crouching) then
-					if not get_console_cmd(1, "g_crouch_toggle") then
-						exec_console_cmd("g_crouch_toggle 1")
-					end
-					level.press_action(bind_to_dik(key_bindings.kCROUCH))
-					level.release_action(bind_to_dik(key_bindings.kCROUCH))
-					log("mutant_skin: auto-crouch applied")
-				end
-			end
-		end
 
 		if speed_up then
 			if lam_fov_manager then
@@ -237,9 +233,6 @@ local function patched_get_template_action_mutant_skin(obj)
 		if fdda_on_exit then
 			fdda_on_exit(self)
 		end
-		if self.flags and self.flags.skin_was_crouching ~= nil then
-			restore_auto_crouch(self.flags.skin_was_crouching)
-		end
 		release_mutant_skin_movement_lock(self)
 	end
 
@@ -249,9 +242,6 @@ local function patched_get_template_action_mutant_skin(obj)
 		end
 		if fdda_on_skip then
 			fdda_on_skip(self)
-		end
-		if self.flags and self.flags.skin_was_crouching ~= nil then
-			restore_auto_crouch(self.flags.skin_was_crouching)
 		end
 		release_mutant_skin_movement_lock(self)
 	end
@@ -300,6 +290,7 @@ local function on_option_change()
 	CONFIG.enabled = DORN.mcm.bool(MOD_ID, "main/enabled", true)
 	CONFIG.debug_log = DORN.mcm.bool(MOD_ID, "development/debug_log", false)
 	CONFIG.skin_speed_multiplier = DORN.mcm.number(MOD_ID, "main/skin_speed_multiplier", 1.5)
+	CONFIG.auto_crouch = DORN.mcm.bool(MOD_ID, "main/auto_crouch", false)
 end
 
 function on_game_start()
