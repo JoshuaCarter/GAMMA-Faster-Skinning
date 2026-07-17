@@ -33,10 +33,11 @@
 	visual. Above 1x we also skip FDDA/lam2 cam effectors and hud_fov zoom tied to the cut.
 
 	Optionally (off by default), with FDDA Redone's mutant skinning installed we also crouch
-	for the knife-cut and stand back up when it ends. Crouch is applied when the action is
-	queued (before disable_input). Works with both hold-crouch and toggle-crouch
-	(g_crouch_toggle): hold mode briefly enables toggle so a press/release sticks, then
-	restores the player's setting.
+	for the knife-cut and stand back up when it ends. Crouch is started when the action would
+	be queued; the knife anim and disable_input wait until crouch lands (or a short timeout)
+	so Pose Controls / the engine can finish the pose. Works with both hold-crouch and
+	toggle-crouch (g_crouch_toggle): hold mode briefly enables toggle so a press/release
+	sticks, then restores the player's setting.
 
 	Optionally (off by default), look at a fixed point on the mutant (spine + height offset)
 	for the whole skinning lock — including crouch/stand transitions. The aim point is
@@ -45,9 +46,9 @@
 	/ human corpse looting are untouched: we only patch mutant_skin / mutant_loot and
 	get_template_action_mutant_skin.
 
-	We also lock movement as soon as the knife-cut action is queued. lam2 normally waits until
-	action enter (and may run hide_items_in_hands first) before disable_input kicks in, which
-	leaves a short window where the player can still walk.
+	We also lock movement when the knife-cut actually starts (after any crouch wait). lam2
+	normally waits until action enter (and may run hide_items_in_hands first) before
+	disable_input kicks in, which leaves a short window where the player can still walk.
 ]]
 
 local MOD_ID = "dorn_faster_skinning"
@@ -220,9 +221,56 @@ local function do_look_at(self, look)
 	end
 end
 
+-- With Pose Controls (and the engine), crouch lands over several frames. If we
+-- disable_input or start the knife anim immediately, you stay standing. Wait for
+-- mcCrouch (or a short timeout) before locking input and queuing the action.
+local CROUCH_BEFORE_SKIN_MS = 600
+local pending_skin_action = nil
+local pending_skin_deadline = nil
+
+local function apply_skin_input_lock(action)
+	if not (action and action.flags) or action.flags.dorn_input_disabled then
+		return
+	end
+	level.disable_input()
+	game.only_allow_movekeys(false)
+	if _G.liz_fdda_input_manager then
+		liz_fdda_input_manager.is_input_disabled = true
+	end
+	game.set_actor_allow_ladder(false)
+	action.flags.dorn_input_disabled = true
+	log("mutant_skin: movement locked")
+end
+
+local function start_skin_action(action)
+	apply_skin_input_lock(action)
+	return original_lam2_add_action(action)
+end
+
+local function tick_pending_skin_action()
+	if not pending_skin_action then
+		return
+	end
+	if IsMoveState("mcCrouch") or time_global() >= pending_skin_deadline then
+		local action = pending_skin_action
+		pending_skin_action = nil
+		pending_skin_deadline = nil
+		if IsMoveState("mcCrouch") then
+			log("mutant_skin: crouch ready, starting knife-cut")
+		else
+			log("mutant_skin: crouch wait timed out, starting knife-cut")
+		end
+		start_skin_action(action)
+	end
+end
+
 local function release_mutant_skin_movement_lock(self)
 	if not (self.flags and self.flags.dorn_early_movement_lock) then
 		return
+	end
+	if pending_skin_action == self then
+		pending_skin_action = nil
+		pending_skin_deadline = nil
 	end
 	level.enable_input()
 	-- Stand while still looking, then release the look-at.
@@ -234,6 +282,7 @@ local function release_mutant_skin_movement_lock(self)
 	end
 	game.set_actor_allow_ladder(true)
 	self.flags.dorn_early_movement_lock = nil
+	self.flags.dorn_input_disabled = nil
 	log("mutant_skin: movement lock released")
 end
 
@@ -244,17 +293,18 @@ local function patched_add_action(action)
 	end
 	if CONFIG.enabled and action and action.name == ACTION_MUTANT_SKIN then
 		action.flags = action.flags or {}
-		-- Look first so the camera tracks the point while crouching, then lock input.
 		do_look_at(action, true)
 		do_crouch(action.flags, true)
-		level.disable_input()
-		game.only_allow_movekeys(false)
-		if _G.liz_fdda_input_manager then
-			liz_fdda_input_manager.is_input_disabled = true
-		end
-		game.set_actor_allow_ladder(false)
 		action.flags.dorn_early_movement_lock = true
-		log("mutant_skin: movement locked on queue")
+		game.set_actor_allow_ladder(false)
+		-- Wait for crouch before lock + queue so Pose Controls can finish the pose.
+		if CONFIG.auto_crouch and action.flags.dorn_skin_was_crouching == false and not IsMoveState("mcCrouch") then
+			pending_skin_action = action
+			pending_skin_deadline = time_global() + CROUCH_BEFORE_SKIN_MS
+			log("mutant_skin: waiting for crouch before knife-cut")
+			return
+		end
+		return start_skin_action(action)
 	end
 	return original_lam2_add_action(action)
 end
@@ -405,6 +455,7 @@ function on_game_start()
 
 	RegisterScriptCallback("actor_on_update", function()
 		DORN.sys.ready(MOD_ID, db, on_option_change)
+		tick_pending_skin_action()
 		refresh_look_at()
 	end)
 	RegisterScriptCallback("on_option_change", on_option_change)
