@@ -39,10 +39,11 @@
 	restores the player's setting.
 
 	Optionally (off by default), look at a fixed point on the mutant (spine + height offset)
-	for the whole skinning lock — including crouch/stand transitions — by re-applying
-	actor_look_at_point while active. FDDA's own mutant-skin look-at is always cancelled so
-	only this option controls it. Body search / human corpse looting are untouched: we only
-	patch mutant_skin / mutant_loot and get_template_action_mutant_skin.
+	for the whole skinning lock — including crouch/stand transitions. The aim point is
+	eased from the current view toward that goal each update (smooth, not a snap). FDDA's
+	own mutant-skin look-at is always cancelled so only this option controls it. Body search
+	/ human corpse looting are untouched: we only patch mutant_skin / mutant_loot and
+	get_template_action_mutant_skin.
 
 	We also lock movement as soon as the knife-cut action is queued. lam2 normally waits until
 	action enter (and may run hide_items_in_hands first) before disable_input kicks in, which
@@ -149,15 +150,28 @@ local function do_crouch(flags, crouch)
 end
 
 -- Look at a fixed world point on the mutant for the whole skinning lock (including
--- crouch/stand transitions). look=true captures/refreshes; look=false stops.
--- actor_look_at_point is re-applied each update while active so the camera keeps
--- aiming at that point as eye height changes.
-local look_at_pos = nil
+-- crouch/stand transitions). The look point is eased from the current aim toward
+-- the goal each update (actor_look_at_point itself snaps), then held on the goal.
+local LOOK_AT_SMOOTH_SEC = 0.35
+local look_at_goal = nil
+local look_at_cur = nil
+
+local function look_at_dt()
+	if device() and device().time_delta then
+		return device().time_delta / 1000
+	end
+	return 0.016
+end
 
 local function refresh_look_at()
-	if look_at_pos and db.actor then
-		db.actor:actor_look_at_point(look_at_pos)
+	if not (look_at_goal and look_at_cur and db.actor) then
+		return
 	end
+	local alpha = 1 - math.exp(-look_at_dt() / LOOK_AT_SMOOTH_SEC)
+	look_at_cur.x = look_at_cur.x + (look_at_goal.x - look_at_cur.x) * alpha
+	look_at_cur.y = look_at_cur.y + (look_at_goal.y - look_at_cur.y) * alpha
+	look_at_cur.z = look_at_cur.z + (look_at_goal.z - look_at_cur.z) * alpha
+	db.actor:actor_look_at_point(look_at_cur)
 end
 
 local function do_look_at(self, look)
@@ -165,16 +179,25 @@ local function do_look_at(self, look)
 		return
 	end
 	if look then
-		if not look_at_pos then
+		if not look_at_goal then
 			local target = self and self.target
 			if not target then
 				return
 			end
 			local mp = target:bone_position(LOOK_AT_BONE)
-			-- Copy: bone_position may reuse a temporary vector.
-			look_at_pos = vector()
-			look_at_pos:set(mp)
-			look_at_pos.y = look_at_pos.y + CONFIG.look_at_offset
+			look_at_goal = vector()
+			look_at_goal:set(mp)
+			look_at_goal.y = look_at_goal.y + CONFIG.look_at_offset
+			-- Start from where the camera is already aiming (same distance as goal).
+			local cam_pos = device().cam_pos
+			local dist = cam_pos:distance_to(look_at_goal)
+			if dist < 0.1 then
+				dist = 1
+			end
+			look_at_cur = vector()
+			look_at_cur:set(device().cam_dir)
+			look_at_cur:mul(dist)
+			look_at_cur:add(cam_pos)
 			log("mutant_skin: look-at applied")
 		end
 		refresh_look_at()
@@ -184,10 +207,11 @@ local function do_look_at(self, look)
 		end
 		return
 	end
-	if not look_at_pos then
+	if not look_at_goal then
 		return
 	end
-	look_at_pos = nil
+	look_at_goal = nil
+	look_at_cur = nil
 	if db.actor and db.actor.actor_stop_look_at_point then
 		db.actor:actor_stop_look_at_point()
 	end
