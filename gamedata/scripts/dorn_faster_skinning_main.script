@@ -30,16 +30,19 @@
 	"inv_mutant_loot_animal") call, patched via xr_sound.set_sound_play) and instead play our own
 	scriptable sound_object (reusing FDDA's existing "harvest_use" cut sound), pitched to match
 	the multiplier via play_no_feedback's frequency argument, so it stays in sync with the faster
-	visual. We also skip all camera motion tied to the cut when sped up: FDDA's own camera-dip
-	effector (replaced on_enter), lam2's automatic cam effector from the knife hud section's
-	"cam" ltx field (by pointing a.cam at a missing key), the actor look-at-target tilt, and
-	the hud_fov zoom lam2 applies on enter.
+	visual. Above 1x we also skip FDDA/lam2 cam effectors and hud_fov zoom tied to the cut.
 
 	Optionally (off by default), with FDDA Redone's mutant skinning installed we also crouch
 	for the knife-cut and stand back up when it ends. Crouch is applied when the action is
 	queued (before disable_input). Works with both hold-crouch and toggle-crouch
 	(g_crouch_toggle): hold mode briefly enables toggle so a press/release sticks, then
 	restores the player's setting.
+
+	Optionally (off by default), look at a fixed point on the mutant (spine + height offset)
+	for the whole skinning lock — including crouch/stand transitions — by re-applying
+	actor_look_at_point while active. FDDA's own mutant-skin look-at is always cancelled so
+	only this option controls it. Body search / human corpse looting are untouched: we only
+	patch mutant_skin / mutant_loot and get_template_action_mutant_skin.
 
 	We also lock movement as soon as the knife-cut action is queued. lam2 normally waits until
 	action enter (and may run hide_items_in_hands first) before disable_input kicks in, which
@@ -58,12 +61,15 @@ local MUTANT_LOOT_SOUND = "inv_mutant_loot_animal"
 local SKIN_CUT_SOUND = "interface\\item_usage\\harvest_use"
 local LAM2_CAM_EFFECTOR_ID = 2190 -- lam2.get_template_action_play_animation's cam effector id
 local LAM2_MISSING_LTX_KEY = "__dorn_no_ltx__" -- bogus ini key so lam2 skips cam/snd lookups
+local LOOK_AT_BONE = "bip01_spine1"
 
 local CONFIG = {
 	enabled = true,
 	debug_log = false,
 	skin_speed_multiplier = 1.5,
 	auto_crouch = false,
+	look_at_mutant = false,
+	look_at_offset = 0.5,
 }
 
 local original_has_achievement = nil
@@ -142,12 +148,62 @@ local function do_crouch(flags, crouch)
 	flags.dorn_prev_crouch_toggle = nil
 end
 
+-- Look at a fixed world point on the mutant for the whole skinning lock (including
+-- crouch/stand transitions). look=true captures/refreshes; look=false stops.
+-- actor_look_at_point is re-applied each update while active so the camera keeps
+-- aiming at that point as eye height changes.
+local look_at_pos = nil
+
+local function refresh_look_at()
+	if look_at_pos and db.actor then
+		db.actor:actor_look_at_point(look_at_pos)
+	end
+end
+
+local function do_look_at(self, look)
+	if not CONFIG.look_at_mutant then
+		return
+	end
+	if look then
+		if not look_at_pos then
+			local target = self and self.target
+			if not target then
+				return
+			end
+			local mp = target:bone_position(LOOK_AT_BONE)
+			-- Copy: bone_position may reuse a temporary vector.
+			look_at_pos = vector()
+			look_at_pos:set(mp)
+			look_at_pos.y = look_at_pos.y + CONFIG.look_at_offset
+			log("mutant_skin: look-at applied")
+		end
+		refresh_look_at()
+		if self then
+			self.flags = self.flags or {}
+			self.flags.dorn_look_at = true
+		end
+		return
+	end
+	if not look_at_pos then
+		return
+	end
+	look_at_pos = nil
+	if db.actor and db.actor.actor_stop_look_at_point then
+		db.actor:actor_stop_look_at_point()
+	end
+	if self and self.flags then
+		self.flags.dorn_look_at = nil
+	end
+end
+
 local function release_mutant_skin_movement_lock(self)
 	if not (self.flags and self.flags.dorn_early_movement_lock) then
 		return
 	end
 	level.enable_input()
+	-- Stand while still looking, then release the look-at.
 	do_crouch(self.flags, false)
+	do_look_at(self, false)
 	game.only_allow_movekeys(false)
 	if _G.liz_fdda_input_manager then
 		liz_fdda_input_manager.is_input_disabled = false
@@ -164,7 +220,8 @@ local function patched_add_action(action)
 	end
 	if CONFIG.enabled and action and action.name == ACTION_MUTANT_SKIN then
 		action.flags = action.flags or {}
-		-- Before disable_input so the pose change still goes through.
+		-- Look first so the camera tracks the point while crouching, then lock input.
+		do_look_at(action, true)
 		do_crouch(action.flags, true)
 		level.disable_input()
 		game.only_allow_movekeys(false)
@@ -200,6 +257,7 @@ local function patched_get_template_action_mutant_skin(obj)
 	local fdda_on_enter = a.on_enter
 	local fdda_on_exit = a.on_exit
 	local fdda_on_skip = a.on_skip
+	local fdda_on_execute = a.on_execute
 	local speed_up = CONFIG.skin_speed_multiplier > 1
 
 	if speed_up then
@@ -222,7 +280,19 @@ local function patched_get_template_action_mutant_skin(obj)
 				skin_cut_sfx:play_no_feedback(db.actor, sound_object.s2d, 0, VEC_ZERO, 1.0, CONFIG.skin_speed_multiplier)
 			end
 		elseif fdda_on_enter then
+			-- Keep FDDA cam effector / other enter work; strip its look-at so only our toggle owns it.
 			fdda_on_enter(self)
+			if db.actor and db.actor.actor_stop_look_at_point then
+				db.actor:actor_stop_look_at_point()
+			end
+		end
+		do_look_at(self, true)
+	end
+
+	a.on_execute = function(self, time)
+		refresh_look_at()
+		if fdda_on_execute then
+			return fdda_on_execute(self, time)
 		end
 	end
 
@@ -231,8 +301,10 @@ local function patched_get_template_action_mutant_skin(obj)
 			level.remove_cam_effector(LAM2_CAM_EFFECTOR_ID)
 		end
 		if fdda_on_exit then
+			-- Still need knife degrade etc.; this also calls actor_stop_look_at_point.
 			fdda_on_exit(self)
 		end
+		refresh_look_at()
 		release_mutant_skin_movement_lock(self)
 	end
 
@@ -243,6 +315,7 @@ local function patched_get_template_action_mutant_skin(obj)
 		if fdda_on_skip then
 			fdda_on_skip(self)
 		end
+		refresh_look_at()
 		release_mutant_skin_movement_lock(self)
 	end
 
@@ -291,6 +364,8 @@ local function on_option_change()
 	CONFIG.debug_log = DORN.mcm.bool(MOD_ID, "development/debug_log", false)
 	CONFIG.skin_speed_multiplier = DORN.mcm.number(MOD_ID, "main/skin_speed_multiplier", 1.5)
 	CONFIG.auto_crouch = DORN.mcm.bool(MOD_ID, "main/auto_crouch", false)
+	CONFIG.look_at_mutant = DORN.mcm.bool(MOD_ID, "main/look_at_mutant", false)
+	CONFIG.look_at_offset = DORN.mcm.number(MOD_ID, "main/look_at_offset", 0.5)
 end
 
 function on_game_start()
@@ -306,6 +381,7 @@ function on_game_start()
 
 	RegisterScriptCallback("actor_on_update", function()
 		DORN.sys.ready(MOD_ID, db, on_option_change)
+		refresh_look_at()
 	end)
 	RegisterScriptCallback("on_option_change", on_option_change)
 	log("loaded")

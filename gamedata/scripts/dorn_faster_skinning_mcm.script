@@ -46,6 +46,23 @@ function on_mcm_load()
 						def = false,
 						hint = "dorn_faster_skinning_auto_crouch",
 					},
+					{
+						id = "look_at_mutant",
+						type = "check",
+						val = 1,
+						def = false,
+						hint = "dorn_faster_skinning_look_at_mutant",
+					},
+					{
+						id = "look_at_offset",
+						type = "track",
+						val = 2,
+						min = 0,
+						max = 1,
+						step = 0.05,
+						def = 0.5,
+						hint = "dorn_faster_skinning_look_at_offset",
+					},
 				}),
 			},
 			{
